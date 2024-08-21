@@ -64,12 +64,15 @@ class TokenBucket {
 
 const pushshiftTokenBucket = new TokenBucket(2015, 7)
 
-export const getPost = async threadID => {
-  await pushshiftTokenBucket.waitForToken()
+export const getPost = async (threadID) => {
+  await pushshiftTokenBucket.waitForToken();
   try {
-    return (await fetchJson(`${postURL}${threadID}`)).data[0]
+    const { data } = await fetchJson(`${postURL}${threadID}`);
+    const firstPost = data[0]; // get the first post (newest post)
+    const secondPost = data.length > 1 ? data[1] : null; // check if there is a second post (oldest post)
+    return (firstPost.selftext === '[deleted]' || firstPost.selftext === '[removed]') ? secondPost : firstPost;
   } catch (error) {
-    errorHandler('Could not get removed/edited post', error, 'pushshift.getPost')
+    errorHandler('Could not get removed/edited post', error, 'pushshift.getPost');
   }
 }
 
@@ -101,58 +104,84 @@ export const getCommentsFromIds = async commentIDs => {
       console.log('pushshift.getCommentsFromIds delay: ' + delay)
     }
   }
-  return response.data.map(c => {
+
+  const comments = response.data;
+  const commentMap = new Map();
+
+  comments.forEach(c => {
+    const existingComment = commentMap.get(c.id);
+    if (!existingComment || 
+        (existingComment.body === '[deleted]' && c.body !== '[deleted]') || 
+        (existingComment.body === '[removed]' && c.body !== '[removed]')) {
+      commentMap.set(c.id, c);
+    }
+  });
+
+  return Array.from(commentMap.values()).map(c => {
     c.link_id   = toBase36(c.link_id)
     c.parent_id = toBase36(c.parent_id) || c.link_id
     return c
-  })
+  });
 }
 
 // The callback() function is called with an Array of comments after each chunk is
 // retrieved. It should return as quickly as possible (scheduling time-taking work
 // later), and may return false to cause getComments to exit early, or true otherwise.
 export const getComments = async (callback, threadID, maxComments, after = 0, before = undefined) => {
-  let chunks = Math.floor(maxComments / chunkSize), firstChunk = true, response, lastCreatedUtc = 1
-  while (true) {
+  let chunks = Math.floor(maxComments / chunkSize), response, lastCreatedUtc = 1;
+  const commentMap = new Map();
 
-    let query = commentURLbyLink + threadID
-    if (after)
-      query += `&after=${after}`
-    if (before)
-      query += `&before=${before}`
-    let delay = 0
+  while (true) {
+    let query = commentURLbyLink + threadID;
+    if (after) query += `&after=${after}`;
+    if (before) query += `&before=${before}`;
+    let delay = 0;
+
     while (true) {
-      await pushshiftTokenBucket.waitForToken()
+      await pushshiftTokenBucket.waitForToken();
       try {
-        response = await fetchJson(query)
-        break
+        response = await fetchJson(query);
+        break;
       } catch (error) {
-        if (delay >= 8000)  // after ~16s of consecutive failures
-          errorHandler('Could not get removed comments', error, 'pushshift.getComments')  // rethrows
-        delay = delay * 2 || 125
-        pushshiftTokenBucket.setNextAvail(delay)
-        if (!callback([]))
-          return [ lastCreatedUtc, false ]
-        console.log('pushshift.getComments delay: ' + delay)
+        if (delay >= 8000) {  // after ~16s of consecutive failures
+          errorHandler('Could not get removed comments', error, 'pushshift.getComments');  // rethrows
+        }
+        delay = delay * 2 || 125;
+        pushshiftTokenBucket.setNextAvail(delay);
+        if (!callback([])) return [lastCreatedUtc, false];
+        console.log('pushshift.getComments delay: ' + delay);
       }
     }
-    const comments = response.data
-    const exitEarly = !callback(comments.map(c => ({
-      ...c,
-      parent_id: c.parent_id ? toBase36(c.parent_id) : threadID,
-      link_id:   c.link_id?.substring(3)   || threadID
-    })))
 
-    firstChunk = false
+    const comments = response.data;
+
+    // Add comments to the map, replacing deleted/removed ones if necessary
+    comments.forEach(c => {
+      const existingComment = commentMap.get(c.id);
+      if (!existingComment || 
+          (existingComment.body === '[deleted]' && c.body !== '[deleted]') || 
+          (existingComment.body === '[removed]' && c.body !== '[removed]')) {
+        commentMap.set(c.id, c);
+      }
+    });
 
     const loadedAllComments = Object.prototype.hasOwnProperty.call(response.metadata, 'total_results') ?
       response.metadata.results_returned >= response.metadata.total_results :
-      comments.length < chunkSize/2
-    if (comments.length)
-      lastCreatedUtc = comments[comments.length - 1].created_utc
-    if (loadedAllComments || chunks <= 1 || exitEarly)
-      return [ lastCreatedUtc, loadedAllComments ]
-    chunks--
-    after = Math.max(lastCreatedUtc - 1, after + 1)
+      comments.length < chunkSize / 2;
+
+    if (comments.length) lastCreatedUtc = comments[comments.length - 1].created_utc;
+    if (loadedAllComments || chunks <= 1) break;
+    chunks--;
+    after = Math.max(lastCreatedUtc - 1, after + 1);
   }
+
+  const allComments = Array.from(commentMap.values());
+
+  const exitEarly = !callback(allComments.map(c => ({
+    ...c,
+    parent_id: c.parent_id ? toBase36(c.parent_id) : threadID,
+    link_id: c.link_id?.substring(3) || threadID
+  })));
+  
+  return [lastCreatedUtc, !exitEarly];
 }
