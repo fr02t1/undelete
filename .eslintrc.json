@@ -6,10 +6,12 @@
     "extends": [
         "eslint:recommended",
         "plugin:react/recommended",
-        "plugin:react-hooks/recommended"
+        "plugin:react-hooks/recommended",
+        "plugin:@typescript-eslint/recommended" // Add TypeScript recommended rules
     ],
     "overrides": [
     ],
+    "parser": "@typescript-eslint/parser", // Add TypeScript parser
     "parserOptions": {
         "ecmaVersion": "latest",
         "sourceType": "module",
@@ -18,7 +20,8 @@
         }
     },
     "plugins": [
-        "react"
+        "react",
+        "@typescript-eslint" // Add TypeScript plugin
     ],
     "rules": {
         "react/prop-types": "off",

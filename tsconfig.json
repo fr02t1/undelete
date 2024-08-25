@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+      "target": "ES2021",
+      "lib": ["dom", "dom.iterable", "esnext"],
+      "module": "commonjs",
+      "strict": true,
+      "esModuleInterop": true,
+      "skipLibCheck": true,
+      "forceConsistentCasingInFileNames": true,
+      "outDir": "./dist",
+      "rootDir": "./src",
+      "resolveJsonModule": true, // Add this if you import JSON files
+      "allowJs": true, // Add this if you want to include JavaScript files
+      "jsx": "react" // Add this if you are using React with JSX
+    },
+    "include": ["src/**/*", "global.d.ts"],
+    "exclude": ["node_modules"]
+  }
